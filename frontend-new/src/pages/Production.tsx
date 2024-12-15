@@ -1,15 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
-  Typography,
   Container,
-  Button,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
+  Typography,
+  Paper,
   Table,
   TableBody,
   TableCell,
@@ -17,88 +11,367 @@ import {
   TableHead,
   TableRow,
   TablePagination,
+  Button,
   Checkbox,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  InputAdornment,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Alert,
   Tooltip,
   CircularProgress,
-  Paper,
-  useTheme,
-  Alert
+  Slide,
+  Fade,
+  Zoom,
+  styled,
 } from '@mui/material';
-import { 
-  Add as AddIcon, 
-  Edit as EditIcon, 
-  Delete as DeleteIcon, 
-  Search as SearchIcon,
-  FileDownload as FileDownloadIcon,
-  TableView as TableViewIcon,
-  PictureAsPdf as PictureAsPdfIcon
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Warning as WarningIcon,
+  Cancel as CancelIcon,
+  Save as SaveIcon,
+  Update as UpdateIcon,
 } from '@mui/icons-material';
 import Layout from '../components/layout/Layout';
-import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import { useDateFilterContext } from '../contexts/DateFilterContext';
 import DateFilter from '../components/common/DateFilter';
-import Papa from 'papaparse';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { useDateFilterContext } from '../contexts/DateFilterContext';
 
-// Interface for production records using date as primary key
 interface GoldProductionRecord {
-  date: string;  // Primary key
-  total_tonnage_crushed: number;
-  total_tonnage_hoisted: number;
+  id: number;
+  date: string;
+  smelted_gold: number;
   gold_recovery_rate: number;
+  total_tonnage_crushed: number;
+  total_tonnage_milled: number;
   operational_efficiency: number;
-  gold_smelted: number;
   notes?: string;
 }
 
 interface FormData {
   date: string;
-  total_tonnage_crushed: string;
-  total_tonnage_hoisted: string;
+  smelted_gold: string;
   gold_recovery_rate: string;
+  total_tonnage_crushed: string;
+  total_tonnage_milled: string;
   operational_efficiency: string;
-  gold_smelted: string;
   notes: string;
 }
 
+const ROWS_PER_PAGE_OPTIONS = [5, 10, 15, 20];
+
 const INITIAL_FORM_DATA: FormData = {
-  date: new Date().toISOString().split('T')[0],
-  total_tonnage_crushed: '',
-  total_tonnage_hoisted: '',
+  date: format(new Date(), 'yyyy-MM-dd'),
+  smelted_gold: '',
   gold_recovery_rate: '',
+  total_tonnage_crushed: '',
+  total_tonnage_milled: '',
   operational_efficiency: '',
-  gold_smelted: '',
   notes: '',
 };
 
-const ROWS_PER_PAGE_OPTIONS = [10, 25, 50];
+const Transition = React.forwardRef(function Transition(
+  props: any,
+  ref: React.Ref<unknown>,
+) {
+  return <Slide direction="up" ref={ref} {...props} />;
+});
+
+const StyledDialogTitle = styled(DialogTitle)(({ theme }) => ({
+  background: 'linear-gradient(135deg, #B8860B 0%, #FFD700 100%)',
+  color: '#000',
+  padding: theme.spacing(3),
+  '& .MuiTypography-root': {
+    fontSize: '1.5rem',
+    fontWeight: 700,
+    textShadow: '0px 1px 2px rgba(0,0,0,0.1)',
+  },
+  position: 'relative',
+  '&::after': {
+    content: '""',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '4px',
+    background: 'linear-gradient(90deg, #DAA520 0%, #FFD700 50%, #DAA520 100%)',
+  }
+}));
+
+const StyledDialogContent = styled(DialogContent)(({ theme }) => ({
+  padding: theme.spacing(4),
+  background: '#1A1A1A',
+  color: '#FFFFFF',
+  '& .MuiTextField-root': {
+    marginBottom: theme.spacing(3),
+    '& .MuiOutlinedInput-root': {
+      '& fieldset': {
+        borderColor: 'rgba(218,165,32,0.3)',
+      },
+      '&:hover fieldset': {
+        borderColor: '#DAA520',
+      },
+      '&.Mui-focused fieldset': {
+        borderColor: '#FFD700',
+      },
+    },
+    '& .MuiInputLabel-root': {
+      color: '#DAA520',
+    },
+    '& .MuiInputBase-input': {
+      color: '#FFFFFF',
+    },
+  },
+}));
+
+const StyledDialogActions = styled(DialogActions)(({ theme }) => ({
+  padding: theme.spacing(2, 4),
+  background: '#1A1A1A',
+  borderTop: '1px solid rgba(218,165,32,0.2)',
+}));
+
+const GoldButton = styled(Button)(({ theme }) => ({
+  background: 'linear-gradient(135deg, #B8860B 0%, #FFD700 100%)',
+  color: '#000',
+  fontWeight: 600,
+  '&:hover': {
+    background: 'linear-gradient(135deg, #DAA520 0%, #FFD700 100%)',
+  },
+  boxShadow: '0 2px 8px rgba(218,165,32,0.3)',
+}));
+
+const DeleteConfirmationDialog = ({ open, onClose, onConfirm, recordId }) => (
+  <Dialog
+    open={open}
+    TransitionComponent={Transition}
+    keepMounted
+    onClose={onClose}
+    closeAfterTransition
+    disablePortal={false}
+    aria-labelledby="delete-dialog-title"
+    aria-describedby="delete-dialog-description"
+    PaperProps={{
+      elevation: 12,
+      sx: {
+        borderRadius: 3,
+        minWidth: '450px',
+        background: '#1A1A1A',
+        border: '1px solid #DAA520',
+        boxShadow: '0 0 20px rgba(218,165,32,0.2)',
+      },
+    }}
+  >
+    <StyledDialogTitle id="delete-dialog-title">
+      <Box display="flex" alignItems="center" gap={2}>
+        <WarningIcon sx={{ color: '#000', fontSize: 28 }} />
+        Ore Processing Termination
+      </Box>
+    </StyledDialogTitle>
+    <StyledDialogContent id="delete-dialog-description">
+      <Typography variant="body1" sx={{ mb: 3, color: '#FFD700' }}>
+        ⚠️ Shaft Warning: You're about to permanently remove this gold production record from the mine's ledger!
+      </Typography>
+      <Typography variant="body2" sx={{ color: '#DAA520' }}>
+        This operation will seal off this data vein permanently. Once confirmed, even our most experienced data miners won't be able to retrieve it.
+      </Typography>
+    </StyledDialogContent>
+    <StyledDialogActions>
+      <Button 
+        onClick={onClose}
+        sx={{ 
+          color: '#DAA520',
+          '&:hover': { color: '#FFD700' }
+        }}
+        tabIndex={0}
+      >
+        Return to Surface
+      </Button>
+      <GoldButton
+        onClick={() => onConfirm(recordId)}
+        startIcon={<DeleteIcon />}
+        autoFocus
+        tabIndex={0}
+      >
+        Confirm Extraction
+      </GoldButton>
+    </StyledDialogActions>
+  </Dialog>
+);
+
+const RecordFormDialog = ({ open, onClose, onSubmit, initialData, mode }) => {
+  const [formData, setFormData] = useState(initialData);
+  
+  return (
+    <Dialog
+      open={open}
+      TransitionComponent={Transition}
+      keepMounted
+      maxWidth="md"
+      fullWidth
+      PaperProps={{
+        elevation: 12,
+        sx: {
+          borderRadius: 3,
+          background: '#1A1A1A',
+          border: '1px solid #DAA520',
+          boxShadow: '0 0 20px rgba(218,165,32,0.2)',
+        },
+      }}
+    >
+      <StyledDialogTitle>
+        <Box display="flex" alignItems="center" gap={2}>
+          {mode === 'add' ? (
+            <>
+              <AddIcon sx={{ color: '#000', fontSize: 28 }} /> New Gold Seam Discovery
+            </>
+          ) : (
+            <>
+              <EditIcon sx={{ color: '#000', fontSize: 28 }} /> Refining Gold Data
+            </>
+          )}
+        </Box>
+      </StyledDialogTitle>
+      <StyledDialogContent>
+        <Typography variant="body2" sx={{ color: '#DAA520', mb: 4 }}>
+          {mode === 'add' 
+            ? "💎 Opening a new mining shaft! Let's record this golden discovery in our ledger."
+            : "⚒️ Refining the ore data to ensure maximum yield accuracy..."}
+        </Typography>
+        <Box
+          component="form"
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, 1fr)',
+            gap: 3,
+          }}
+        >
+          <TextField
+            label="Date"
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+          />
+          <TextField
+            label="Smelted Gold (g)"
+            type="number"
+            value={formData.smelted_gold}
+            onChange={(e) => setFormData({ ...formData, smelted_gold: e.target.value })}
+            fullWidth
+          />
+          <TextField
+            label="Recovery Rate (%)"
+            type="number"
+            value={formData.gold_recovery_rate}
+            onChange={(e) => setFormData({ ...formData, gold_recovery_rate: e.target.value })}
+            fullWidth
+          />
+          <TextField
+            label="Tonnage Crushed (t)"
+            type="number"
+            value={formData.total_tonnage_crushed}
+            onChange={(e) => setFormData({ ...formData, total_tonnage_crushed: e.target.value })}
+            fullWidth
+          />
+          <TextField
+            label="Tonnage Milled (t)"
+            type="number"
+            value={formData.total_tonnage_milled}
+            onChange={(e) => setFormData({ ...formData, total_tonnage_milled: e.target.value })}
+            fullWidth
+          />
+          <TextField
+            label="Operational Efficiency (%)"
+            type="number"
+            value={formData.operational_efficiency}
+            onChange={(e) => setFormData({ ...formData, operational_efficiency: e.target.value })}
+            fullWidth
+          />
+          <TextField
+            label="Notes"
+            multiline
+            rows={4}
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            fullWidth
+          />
+        </Box>
+      </StyledDialogContent>
+      <StyledDialogActions>
+        <Button 
+          onClick={onClose}
+          startIcon={<CancelIcon />}
+          sx={{ 
+            color: '#DAA520',
+            '&:hover': { color: '#FFD700' }
+          }}
+        >
+          Abandon Shaft
+        </Button>
+        <GoldButton
+          onClick={() => onSubmit(formData)}
+          startIcon={mode === 'add' ? <SaveIcon /> : <UpdateIcon />}
+        >
+          {mode === 'add' ? 'Strike Gold' : 'Refine Data'}
+        </GoldButton>
+      </StyledDialogActions>
+    </Dialog>
+  );
+};
+
+const SuccessAlert = ({ open, message, onClose }) => (
+  <Fade in={open}>
+    <Alert
+      severity="success"
+      sx={{
+        position: 'fixed',
+        bottom: 24,
+        right: 24,
+        zIndex: 9999,
+        minWidth: 300,
+        background: 'linear-gradient(135deg, #1A1A1A 0%, #2A2A2A 100%)',
+        color: '#FFD700',
+        border: '1px solid #DAA520',
+        boxShadow: '0 4px 20px rgba(218,165,32,0.3)',
+        borderRadius: 3,
+        '& .MuiAlert-icon': {
+          color: '#FFD700',
+        },
+      }}
+      onClose={onClose}
+    >
+      <Typography variant="body1">
+        {message || '💫 Strike! Golden operation completed successfully!'}
+      </Typography>
+    </Alert>
+  </Fade>
+);
 
 const Production: React.FC = () => {
-  const theme = useTheme();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [openDialog, setOpenDialog] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState<GoldProductionRecord | null>(null);
-  const [formData, setFormData] = useState<FormData>(INITIAL_FORM_DATA);
+  // State
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(ROWS_PER_PAGE_OPTIONS[0]);
-  const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
-  const [selectAllFiltered, setSelectAllFiltered] = useState(false);
-  const [exportAnchorEl, setExportAnchorEl] = useState<null | HTMLElement>(null);
+  const [selectedRecords, setSelectedRecords] = useState<number[]>([]);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [formData, setFormData] = useState<FormData>(INITIAL_FORM_DATA);
+  const [editingRecord, setEditingRecord] = useState<GoldProductionRecord | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [recordToDelete, setRecordToDelete] = useState<number | null>(null);
+  const [successAlertOpen, setSuccessAlertOpen] = useState(false);
 
   const queryClient = useQueryClient();
   const { dateRange } = useDateFilterContext();
 
-  // Fetch production data
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['goldProduction'],
+  // Fetch production records with date filter
+  const { data: records = [], isLoading } = useQuery({
+    queryKey: ['goldProduction', dateRange.startDate, dateRange.endDate],
     queryFn: async () => {
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
       const token = localStorage.getItem('token');
@@ -107,24 +380,40 @@ const Production: React.FC = () => {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch(`${baseUrl}/api/mining-operations/gold-production`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        credentials: 'include',
+      // Format dates to match backend's expected format (YYYY-MM-DD)
+      const formattedStartDate = format(dateRange.startDate, 'yyyy-MM-dd');
+      const formattedEndDate = format(dateRange.endDate, 'yyyy-MM-dd');
+
+      const params = new URLSearchParams({
+        from_date: formattedStartDate,
+        to_date: formattedEndDate
       });
-      
+
+      console.log('Fetching records with date range:', { formattedStartDate, formattedEndDate });
+
+      const response = await fetch(
+        `${baseUrl}/api/mining-operations/gold-production?${params}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        }
+      );
+
       if (!response.ok) {
-        throw new Error('Failed to fetch production data');
+        throw new Error('Failed to fetch records');
       }
-      
-      return response.json();
-    }
+
+      const data = await response.json();
+      return data.data || [];
+    },
   });
 
-  // Save record mutation
-  const saveRecordMutation = useMutation({
-    mutationFn: async (record: Partial<GoldProductionRecord>) => {
+  // Create/Update mutation
+  const saveMutation = useMutation({
+    mutationFn: async (data: Partial<GoldProductionRecord>) => {
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
       const token = localStorage.getItem('token');
       
@@ -132,26 +421,19 @@ const Production: React.FC = () => {
         throw new Error('No authentication token found');
       }
 
-      // Check if a record with this date already exists (for new records)
-      if (!selectedRecord && data?.data) {
-        const existingRecord = data.data.find((r: GoldProductionRecord) => r.date === record.date);
-        if (existingRecord) {
-          throw new Error('A record for this date already exists');
-        }
-      }
-
-      const response = await fetch(
-        `${baseUrl}/api/mining-operations/gold-production${selectedRecord ? `/${encodeURIComponent(selectedRecord.date)}` : ''}`,
-        {
-          method: selectedRecord ? 'PUT' : 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          credentials: 'include',
-          body: JSON.stringify(record),
-        }
-      );
+      const url = editingRecord 
+        ? `${baseUrl}/api/mining-operations/gold-production/${editingRecord.id}`
+        : `${baseUrl}/api/mining-operations/gold-production`;
+      
+      const response = await fetch(url, {
+        method: editingRecord ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -161,17 +443,17 @@ const Production: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['goldProduction'] });
-      setOpenDialog(false);
-      resetForm();
+      handleCloseDialog();
+      setSuccessAlertOpen(true);
     },
     onError: (error: Error) => {
       setFormError(error.message);
-    }
+    },
   });
 
-  // Delete record mutation
-  const deleteRecordMutation = useMutation({
-    mutationFn: async (date: string) => {
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
       const token = localStorage.getItem('token');
       
@@ -179,14 +461,17 @@ const Production: React.FC = () => {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch(`${baseUrl}/api/mining-operations/gold-production/${encodeURIComponent(date)}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        credentials: 'include',
-      });
-      
+      const response = await fetch(
+        `${baseUrl}/api/mining-operations/gold-production/${id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          credentials: 'include',
+        }
+      );
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || 'Failed to delete record');
@@ -194,97 +479,12 @@ const Production: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['goldProduction'] });
+      setSelectedRecords([]);
+      setSuccessAlertOpen(true);
     },
-    onError: (error: Error) => {
-      console.error('Failed to delete record:', error);
-      alert(error.message || 'Failed to delete record. Please try again.');
-    }
   });
 
-  const handleAdd = () => {
-    setSelectedRecord(null);
-    setFormData(INITIAL_FORM_DATA);
-    setFormError(null);
-    setOpenDialog(true);
-  };
-
-  const handleEdit = (record: GoldProductionRecord) => {
-    setSelectedRecord(record);
-    setFormData({
-      date: record.date,
-      total_tonnage_crushed: record.total_tonnage_crushed?.toString() || '',
-      total_tonnage_hoisted: record.total_tonnage_hoisted?.toString() || '',
-      gold_recovery_rate: record.gold_recovery_rate?.toString() || '',
-      operational_efficiency: record.operational_efficiency?.toString() || '',
-      gold_smelted: record.gold_smelted?.toString() || '',
-      notes: record.notes || '',
-    });
-    setFormError(null);
-    setOpenDialog(true);
-  };
-
-  const handleDelete = async (date: string) => {
-    if (window.confirm('Are you sure you want to delete this record?')) {
-      try {
-        await deleteRecordMutation.mutateAsync(date);
-        alert('Record deleted successfully');
-      } catch (error) {
-        console.error('Failed to delete record:', error);
-      }
-    }
-  };
-
-  const handleSave = async () => {
-    const record: Partial<GoldProductionRecord> = {
-      date: formData.date,
-      total_tonnage_crushed: parseFloat(formData.total_tonnage_crushed) || 0,
-      total_tonnage_hoisted: parseFloat(formData.total_tonnage_hoisted) || 0,
-      gold_recovery_rate: parseFloat(formData.gold_recovery_rate) || 0,
-      operational_efficiency: parseFloat(formData.operational_efficiency) || 0,
-      gold_smelted: parseFloat(formData.gold_smelted) || 0,
-      notes: formData.notes,
-    };
-
-    await saveRecordMutation.mutateAsync(record);
-  };
-
-  const resetForm = () => {
-    setFormData(INITIAL_FORM_DATA);
-    setSelectedRecord(null);
-    setFormError(null);
-  };
-
-  const handleInputChange = (field: keyof FormData) => (event: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: event.target.value,
-    }));
-    setFormError(null);
-  };
-
-  // Filter and paginate records
-  const filteredRecords = useMemo(() => {
-    if (!data?.data || !Array.isArray(data.data)) {
-      return [];
-    }
-    
-    return data.data.filter(record => 
-      record.date.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.total_tonnage_crushed?.toString().includes(searchTerm) ||
-      record.total_tonnage_hoisted?.toString().includes(searchTerm) ||
-      record.gold_recovery_rate?.toString().includes(searchTerm) ||
-      record.operational_efficiency?.toString().includes(searchTerm) ||
-      record.gold_smelted?.toString().includes(searchTerm)
-    );
-  }, [data?.data, searchTerm]);
-
-  const paginatedRecords = useMemo(() => {
-    const start = page * rowsPerPage;
-    return filteredRecords.slice(start, start + rowsPerPage);
-  }, [filteredRecords, page, rowsPerPage]);
-
-  // Table pagination handlers
+  // Handlers
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
   };
@@ -294,129 +494,251 @@ const Production: React.FC = () => {
     setPage(0);
   };
 
-  // Selection handlers
-  const handleSelectRecord = (date: string) => {
-    setSelectedRecords(prev => 
-      prev.includes(date) ? prev.filter(d => d !== date) : [...prev, date]
-    );
-  };
-
   const handleSelectAll = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.checked) {
-      const currentPageDates = paginatedRecords.map(record => record.date);
-      setSelectedRecords(prev => Array.from(new Set([...prev, ...currentPageDates])));
-    } else {
-      const currentPageDates = new Set(paginatedRecords.map(record => record.date));
-      setSelectedRecords(prev => prev.filter(date => !currentPageDates.has(date)));
+      const newSelected = records.map((record: GoldProductionRecord) => record.id);
+      setSelectedRecords(newSelected);
+      return;
     }
+    setSelectedRecords([]);
+  };
+
+  const handleSelectRecord = (id: number) => {
+    const selectedIndex = selectedRecords.indexOf(id);
+    let newSelected: number[] = [];
+
+    if (selectedIndex === -1) {
+      newSelected = newSelected.concat(selectedRecords, id);
+    } else if (selectedIndex === 0) {
+      newSelected = newSelected.concat(selectedRecords.slice(1));
+    } else if (selectedIndex === selectedRecords.length - 1) {
+      newSelected = newSelected.concat(selectedRecords.slice(0, -1));
+    } else if (selectedIndex > 0) {
+      newSelected = newSelected.concat(
+        selectedRecords.slice(0, selectedIndex),
+        selectedRecords.slice(selectedIndex + 1)
+      );
+    }
+
+    setSelectedRecords(newSelected);
+  };
+
+  const handleOpenDialog = (record?: GoldProductionRecord | null) => {
+    if (record) {
+      setFormData({
+        date: format(new Date(record.date), 'yyyy-MM-dd'),
+        smelted_gold: record.smelted_gold,
+        gold_recovery_rate: record.gold_recovery_rate,
+        total_tonnage_crushed: record.total_tonnage_crushed,
+        total_tonnage_milled: record.total_tonnage_milled,
+        operational_efficiency: record.operational_efficiency,
+        notes: record.notes || '',
+      });
+      setEditingRecord(record);
+    } else {
+      setFormData(INITIAL_FORM_DATA);
+      setEditingRecord(null);
+    }
+    setOpenDialog(true);
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setFormData(INITIAL_FORM_DATA);
+    setEditingRecord(null);
+    setFormError(null);
+  };
+
+  const handleSave = () => {
+    const record = {
+      date: formData.date,
+      smelted_gold: parseFloat(formData.smelted_gold),
+      gold_recovery_rate: parseFloat(formData.gold_recovery_rate),
+      total_tonnage_crushed: parseFloat(formData.total_tonnage_crushed),
+      total_tonnage_milled: parseFloat(formData.total_tonnage_milled),
+      operational_efficiency: parseFloat(formData.operational_efficiency),
+      notes: formData.notes,
+    };
+
+    saveMutation.mutate(record);
+  };
+
+  const handleDelete = (id: number) => {
+    setRecordToDelete(id);
+    setDeleteConfirmationOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (recordToDelete) {
+      deleteMutation.mutate(recordToDelete);
+      setDeleteConfirmationOpen(false);
+      setRecordToDelete(null);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmationOpen(false);
+    setRecordToDelete(null);
+  };
+
+  const handleSuccessAlertClose = () => {
+    setSuccessAlertOpen(false);
   };
 
   return (
     <Layout>
-      <Container maxWidth="lg">
-        <Box sx={{ mt: 4, mb: 4 }}>
-          <Paper sx={{ p: 3, borderRadius: 2 }}>
-            {/* Header */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-              <Typography variant="h4">Gold Production Records</Typography>
-              <Button
-                variant="contained"
-                onClick={handleAdd}
-                startIcon={<AddIcon />}
+      <Container maxWidth="xl">
+        <Box sx={{ py: 4 }}>
+          <Typography variant="h4" sx={{ mb: 4 }}>
+            Production Management
+          </Typography>
+          
+          <Paper 
+            elevation={0} 
+            sx={{ 
+              p: 3, 
+              borderRadius: 2,
+              backgroundColor: 'background.default'
+            }}
+          >
+            {/* Header Actions */}
+            <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+              <GoldButton
+                onClick={() => handleOpenDialog()}
+                startIcon={
+                  <AddIcon sx={{ 
+                    fontSize: '1.2rem',
+                    filter: 'drop-shadow(0px 1px 1px rgba(0,0,0,0.3))'
+                  }} />
+                }
+                sx={{
+                  py: 1.5,
+                  px: 3,
+                  fontSize: '1rem',
+                  borderRadius: '50px',
+                  textTransform: 'none',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: '2px',
+                    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
+                  },
+                  '&:hover': {
+                    transform: 'translateY(-1px)',
+                    boxShadow: '0 4px 12px rgba(218,165,32,0.4)',
+                  },
+                  transition: 'all 0.3s ease',
+                }}
               >
-                Add Record
-              </Button>
+                Add New Record
+              </GoldButton>
+
+              {selectedRecords.length > 0 && (
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={handleDeleteSelected}
+                  startIcon={<DeleteIcon />}
+                  sx={{
+                    background: 'linear-gradient(135deg, #8B0000 0%, #FF0000 100%)',
+                    color: '#FFFFFF',
+                    borderRadius: '50px',
+                    py: 1.5,
+                    px: 3,
+                    textTransform: 'none',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #A00000 0%, #FF1111 100%)',
+                      boxShadow: '0 4px 12px rgba(139,0,0,0.4)',
+                    },
+                  }}
+                >
+                  Clear Selected Veins
+                </Button>
+              )}
             </Box>
 
-            {/* Search and Filter */}
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  placeholder="Search records..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchIcon />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <DateFilter />
-              </Grid>
-            </Grid>
+            {/* Date Filter */}
+            <DateFilter />
 
-            {/* Table */}
-            {isLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                <CircularProgress />
-              </Box>
-            ) : error ? (
-              <Alert severity="error">
-                Failed to load production records. Please try again.
-              </Alert>
-            ) : (
-              <>
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell padding="checkbox">
-                          <Checkbox
-                            checked={
-                              paginatedRecords.length > 0 &&
-                              paginatedRecords.every(record => 
-                                selectedRecords.includes(record.date)
-                              )
-                            }
-                            onChange={handleSelectAll}
-                          />
-                        </TableCell>
-                        <TableCell>Date</TableCell>
-                        <TableCell align="right">Tonnage Crushed (t)</TableCell>
-                        <TableCell align="right">Tonnage Hoisted (t)</TableCell>
-                        <TableCell align="right">Recovery Rate (%)</TableCell>
-                        <TableCell align="right">Efficiency (%)</TableCell>
-                        <TableCell align="right">Gold Smelted (g)</TableCell>
-                        <TableCell>Notes</TableCell>
-                        <TableCell align="center">Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {paginatedRecords.map((record) => (
-                        <TableRow 
-                          key={record.date}
-                          hover
-                          selected={selectedRecords.includes(record.date)}
+            {/* Records Table */}
+            <TableContainer>
+              {isLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                  <CircularProgress />
+                </Box>
+              ) : records.length === 0 ? (
+                <Box sx={{ p: 4, textAlign: 'center' }}>
+                  <Typography color="textSecondary">
+                    No records found for the selected date range
+                  </Typography>
+                </Box>
+              ) : (
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          indeterminate={
+                            selectedRecords.length > 0 &&
+                            selectedRecords.length < records.length
+                          }
+                          checked={
+                            records.length > 0 &&
+                            selectedRecords.length === records.length
+                          }
+                          onChange={handleSelectAll}
+                        />
+                      </TableCell>
+                      <TableCell>Date</TableCell>
+                      <TableCell align="right">Smelted Gold (g)</TableCell>
+                      <TableCell align="right">Recovery Rate (%)</TableCell>
+                      <TableCell align="right">Tonnage Crushed (t)</TableCell>
+                      <TableCell align="right">Tonnage Milled (t)</TableCell>
+                      <TableCell align="right">Efficiency (%)</TableCell>
+                      <TableCell>Notes</TableCell>
+                      <TableCell align="center">Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(records as GoldProductionRecord[])
+                      .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                      .map((record) => (
+                        <TableRow
+                          key={record.id}
+                          selected={selectedRecords.includes(record.id)}
                         >
                           <TableCell padding="checkbox">
                             <Checkbox
-                              checked={selectedRecords.includes(record.date)}
-                              onChange={() => handleSelectRecord(record.date)}
+                              checked={selectedRecords.includes(record.id)}
+                              onChange={() => handleSelectRecord(record.id)}
                             />
                           </TableCell>
-                          <TableCell>{new Date(record.date).toLocaleDateString()}</TableCell>
-                          <TableCell align="right">{record.total_tonnage_crushed.toFixed(2)}</TableCell>
-                          <TableCell align="right">{record.total_tonnage_hoisted.toFixed(2)}</TableCell>
+                          <TableCell>{format(new Date(record.date), 'yyyy-MM-dd')}</TableCell>
+                          <TableCell align="right">{record.smelted_gold.toFixed(2)}</TableCell>
                           <TableCell align="right">{record.gold_recovery_rate.toFixed(2)}</TableCell>
+                          <TableCell align="right">{record.total_tonnage_crushed.toFixed(2)}</TableCell>
+                          <TableCell align="right">{record.total_tonnage_milled.toFixed(2)}</TableCell>
                           <TableCell align="right">{record.operational_efficiency.toFixed(2)}</TableCell>
-                          <TableCell align="right">{record.gold_smelted.toFixed(2)}</TableCell>
                           <TableCell>{record.notes || '-'}</TableCell>
                           <TableCell align="center">
                             <Tooltip title="Edit">
-                              <IconButton onClick={() => handleEdit(record)} size="small">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleOpenDialog(record)}
+                              >
                                 <EditIcon />
                               </IconButton>
                             </Tooltip>
                             <Tooltip title="Delete">
-                              <IconButton 
-                                onClick={() => handleDelete(record.date)} 
-                                size="small" 
+                              <IconButton
+                                size="small"
                                 color="error"
+                                onClick={() => handleDelete(record.id)}
                               >
                                 <DeleteIcon />
                               </IconButton>
@@ -424,134 +746,46 @@ const Production: React.FC = () => {
                           </TableCell>
                         </TableRow>
                       ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-                <TablePagination
-                  rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
-                  component="div"
-                  count={filteredRecords.length}
-                  rowsPerPage={rowsPerPage}
-                  page={page}
-                  onPageChange={handleChangePage}
-                  onRowsPerPageChange={handleChangeRowsPerPage}
-                />
-              </>
-            )}
+                  </TableBody>
+                </Table>
+              )}
+            </TableContainer>
+
+            {/* Pagination */}
+            <TablePagination
+              rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
+              component="div"
+              count={records.length}
+              rowsPerPage={rowsPerPage}
+              page={page}
+              onPageChange={handleChangePage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+            />
+
+            {/* Add/Edit Dialog */}
+            <RecordFormDialog 
+              open={openDialog} 
+              onClose={handleCloseDialog} 
+              onSubmit={handleSave} 
+              initialData={formData} 
+              mode={editingRecord ? 'edit' : 'add'} 
+            />
+
+            {/* Delete Confirmation Dialog */}
+            <DeleteConfirmationDialog 
+              open={deleteConfirmationOpen} 
+              onClose={handleCancelDelete} 
+              onConfirm={handleConfirmDelete} 
+              recordId={recordToDelete} 
+            />
+
+            {/* Success Alert */}
+            <SuccessAlert 
+              open={successAlertOpen} 
+              onClose={handleSuccessAlertClose} 
+            />
           </Paper>
         </Box>
-
-        {/* Add/Edit Dialog */}
-        <Dialog 
-          open={openDialog} 
-          onClose={() => setOpenDialog(false)}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>
-            {selectedRecord ? 'Edit Production Record' : 'Add Production Record'}
-          </DialogTitle>
-          <DialogContent>
-            {formError && (
-              <Alert severity="error" sx={{ mt: 2, mb: 2 }}>
-                {formError}
-              </Alert>
-            )}
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Date"
-                  type="date"
-                  value={formData.date}
-                  onChange={handleInputChange('date')}
-                  InputLabelProps={{ shrink: true }}
-                  disabled={!!selectedRecord}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Tonnage Crushed"
-                  type="number"
-                  value={formData.total_tonnage_crushed}
-                  onChange={handleInputChange('total_tonnage_crushed')}
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">t</InputAdornment>,
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Tonnage Hoisted"
-                  type="number"
-                  value={formData.total_tonnage_hoisted}
-                  onChange={handleInputChange('total_tonnage_hoisted')}
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">t</InputAdornment>,
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Recovery Rate"
-                  type="number"
-                  value={formData.gold_recovery_rate}
-                  onChange={handleInputChange('gold_recovery_rate')}
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">%</InputAdornment>,
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Operational Efficiency"
-                  type="number"
-                  value={formData.operational_efficiency}
-                  onChange={handleInputChange('operational_efficiency')}
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">%</InputAdornment>,
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Gold Smelted"
-                  type="number"
-                  value={formData.gold_smelted}
-                  onChange={handleInputChange('gold_smelted')}
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">g</InputAdornment>,
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Notes"
-                  multiline
-                  rows={4}
-                  value={formData.notes}
-                  onChange={handleInputChange('notes')}
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-            <Button 
-              onClick={handleSave}
-              variant="contained"
-              disabled={saveRecordMutation.isPending}
-            >
-              {saveRecordMutation.isPending ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogActions>
-        </Dialog>
       </Container>
     </Layout>
   );

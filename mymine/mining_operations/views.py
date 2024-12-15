@@ -15,7 +15,8 @@ from .models import (
 from .serializers import (
     ExplosivesInventorySerializer,
     StockpileVolumeSerializer,
-    LaborMetricSerializer, EnvironmentalMetricSerializer
+    LaborMetricSerializer, EnvironmentalMetricSerializer,
+    DailyProductionLogSerializer, SmeltedGoldSerializer
 )
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
@@ -984,3 +985,74 @@ def equipment_maintenance(request):
         'data': list(maintenance_data),
         'summary': summary
     })
+
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from .serializers import (
+    ExplosivesInventorySerializer,
+    StockpileVolumeSerializer,
+    LaborMetricSerializer, EnvironmentalMetricSerializer,
+    DailyProductionLogSerializer, SmeltedGoldSerializer
+)
+
+class DailyProductionLogViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for viewing and editing production logs.
+    """
+    queryset = DailyProductionLog.objects.all().order_by('-date')
+    serializer_class = DailyProductionLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """
+        Get summary statistics for production logs
+        """
+        last_30_days = timezone.now().date() - timedelta(days=30)
+        queryset = self.get_queryset().filter(date__gte=last_30_days)
+        
+        summary_data = {
+            'total_gold_produced': queryset.aggregate(Sum('smelted_gold'))['smelted_gold__sum'] or 0,
+            'avg_recovery_rate': queryset.aggregate(Avg('gold_recovery_rate'))['gold_recovery_rate__avg'] or 0,
+            'total_tonnage_milled': queryset.aggregate(Sum('total_tonnage_milled'))['total_tonnage_milled__sum'] or 0,
+            'total_gross_profit': queryset.aggregate(Sum('gross_profit'))['gross_profit__sum'] or 0,
+        }
+        
+        return Response(summary_data)
+
+class SmeltedGoldViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for viewing and editing smelted gold records.
+    """
+    queryset = SmeltedGold.objects.all().order_by('-date')
+    serializer_class = SmeltedGoldSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """
+        Get summary statistics for smelted gold
+        """
+        last_30_days = timezone.now().date() - timedelta(days=30)
+        queryset = self.get_queryset().filter(date__gte=last_30_days)
+        
+        summary_data = {
+            'total_weight': queryset.aggregate(Sum('total_weight'))['total_weight__sum'] or 0,
+            'avg_purity': queryset.aggregate(Avg('purity_percentage'))['purity_percentage__avg'] or 0,
+            'total_value': queryset.aggregate(Sum('total_value'))['total_value__sum'] or 0,
+        }
+        
+        return Response(summary_data)
