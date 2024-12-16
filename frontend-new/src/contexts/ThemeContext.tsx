@@ -18,31 +18,53 @@ export const useTheme = () => {
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Get initial theme from localStorage or default to light mode
+  // Default to dark mode
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem('theme');
-    return savedTheme === 'dark';
+    // Return true (dark mode) if no theme is saved or if it's set to dark
+    return savedTheme === null ? true : savedTheme === 'dark';
   });
 
   const theme = createTheme({
     palette: {
       mode: isDarkMode ? 'dark' : 'light',
       primary: {
-        main: '#1976d2',
+        main: isDarkMode ? '#DAA520' : '#1976d2', // Gold color in dark mode
       },
       secondary: {
-        main: '#dc004e',
+        main: isDarkMode ? '#FFD700' : '#dc004e', // Lighter gold in dark mode
       },
       background: {
         default: isDarkMode ? '#121212' : '#f5f5f5',
-        paper: isDarkMode ? '#1e1e1e' : '#ffffff',
+        paper: isDarkMode ? '#1A1A1A' : '#ffffff',
+      },
+      text: {
+        primary: isDarkMode ? '#FFD700' : '#000000',
+        secondary: isDarkMode ? '#DAA520' : '#666666',
       },
     },
     components: {
       MuiAppBar: {
         styleOverrides: {
           root: {
-            backgroundColor: isDarkMode ? '#1e1e1e' : '#1976d2',
+            background: isDarkMode 
+              ? 'linear-gradient(145deg, #1A1A1A, #000000)'
+              : 'linear-gradient(145deg, #1976d2, #1565c0)',
+            borderBottom: isDarkMode ? '1px solid rgba(218,165,32,0.3)' : 'none',
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            textTransform: 'none',
+          },
+        },
+      },
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            backgroundImage: 'none',
           },
         },
       },
@@ -50,13 +72,19 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
 
   const toggleTheme = () => {
-    setIsDarkMode((prev) => !prev);
+    setIsDarkMode(prev => {
+      const newMode = !prev;
+      localStorage.setItem('theme', newMode ? 'dark' : 'light');
+      return newMode;
+    });
   };
 
-  // Save theme preference to localStorage
+  // Set initial theme in localStorage if not present
   useEffect(() => {
-    localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
-  }, [isDarkMode]);
+    if (!localStorage.getItem('theme')) {
+      localStorage.setItem('theme', 'dark');
+    }
+  }, []);
 
   return (
     <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>

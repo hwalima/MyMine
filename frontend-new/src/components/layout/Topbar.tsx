@@ -106,9 +106,10 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuClick, onThemeToggle }) => {
               src={currentLogo}
               alt="Logo"
               style={{
-                height: '32px',
-                marginRight: '12px',
+                height: '64px',
+                marginRight: '16px',
                 filter: theme.palette.mode === 'dark' ? 'brightness(1)' : 'brightness(1)',
+                transition: 'all 0.3s ease',
               }}
             />
             <Typography variant="h6" noWrap component="div">
